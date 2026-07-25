@@ -1,0 +1,163 @@
+/* ===== IMPORTACIÓN DE FUENTE PIXEL (Opcional si usas local) ===== */
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap');
+
+/* ===== RESET BÁSICO ===== */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    user-select: none; /* Evita selección accidental al hacer clics rápidos */
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background-color: #050508;
+    font-family: 'Press Start 2P', 'Courier New', monospace;
+}
+
+/* ===== CONTENEDOR DEL JUEGO CON FONDO ARCADIA ===== */
+#game-container {
+    position: relative;
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    /* Fondo estilo rejilla Synthwave / Arcade años 2000 */
+    background: 
+        radial-gradient(circle, rgba(16, 20, 48, 0.9) 0%, rgba(2, 2, 8, 1) 100%),
+        linear-gradient(rgba(255, 0, 255, 0.05) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 0, 255, 0.05) 1px, transparent 1px);
+    background-size: 100% 100%, 20px 20px, 20px 20px;
+}
+
+/* ===== CANVAS PRINCIPAL CON MÁSCARA CRT DE RECREATIVA ===== */
+#gameCanvas {
+    background-color: #000;
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+    
+    /* Borde 3D metálico / neón */
+    border: 4px solid #00ffff;
+    outline: 4px solid #ff00ff;
+    
+    /* Brillo de pantalla encendida */
+    box-shadow: 
+        0 0 20px rgba(0, 255, 255, 0.6),
+        0 0 40px rgba(255, 0, 255, 0.4),
+        inset 0 0 15px rgba(0, 255, 255, 0.2);
+}
+
+/* ===== EFECTO CRT SCANLINES (Líneas de TV sobre el juego) ===== */
+#game-container::after {
+    content: " ";
+    display: block;
+    position: absolute;
+    top: 0; left: 0; bottom: 0; right: 0;
+    background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%);
+    background-size: 100% 4px;
+    z-index: 99;
+    pointer-events: none;
+    opacity: 0.7;
+}
+
+/* ===== CAPA DE INTERFAZ (UI LAYER) ===== */
+#ui-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 10;
+}
+
+#ui-layer > * {
+    pointer-events: auto;
+}
+
+/* ===== ESTÉICA RETRO SATURADA Y2K PARA BOTONES ===== */
+.retro-btn {
+    font-family: 'Press Start 2P', 'Courier New', monospace;
+    font-size: 14px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    background: linear-gradient(180deg, #0055ff 0%, #000080 100%);
+    color: #ffff00;
+    border: 3px solid #00ffff;
+    padding: 12px 20px;
+    cursor: pointer;
+    
+    /* Bisel 3D Retro */
+    box-shadow: 
+        inset 2px 2px 0px rgba(255, 255, 255, 0.6),
+        inset -2px -2px 0px rgba(0, 0, 0, 0.8),
+        4px 4px 0px #000;
+        
+    text-shadow: 2px 2px 0px #000000;
+    transition: all 0.08s ease-in-out;
+}
+
+.retro-btn:hover {
+    background: linear-gradient(180deg, #ff00ff 0%, #a000a0 100%);
+    color: #ffffff;
+    border-color: #ffff00;
+    transform: translate(-2px, -2px);
+    box-shadow: 
+        inset 2px 2px 0px rgba(255, 255, 255, 0.8),
+        inset -2px -2px 0px rgba(0, 0, 0, 0.8),
+        6px 6px 0px #000,
+        0 0 12px rgba(255, 0, 255, 0.8);
+    text-shadow: 2px 2px 0px #000, 0 0 8px #ffffff;
+}
+
+.retro-btn:active {
+    transform: translate(2px, 2px);
+    box-shadow: 
+        inset -2px -2px 0px rgba(255, 255, 255, 0.4),
+        inset 2px 2px 0px rgba(0, 0, 0, 0.9),
+        2px 2px 0px #000;
+    background: linear-gradient(180deg, #800080 0%, #ff00ff 100%);
+}
+
+/* ===== ESTILOS PARA FORMULARIOS Y CAJAS DEL EDITOR ===== */
+#ui-layer input[type="text"],
+#ui-layer select {
+    background: #000000 !important;
+    color: #00ffff !important;
+    border: 2px solid #ff00ff !important;
+    box-shadow: inset 2px 2px 0px #000, 2px 2px 0px #000;
+    outline: none;
+    font-family: 'Courier New', monospace;
+    font-weight: bold;
+}
+
+#ui-layer input[type="text"]:focus,
+#ui-layer select:focus {
+    border-color: #ffff00 !important;
+    box-shadow: 0 0 8px #ffff00;
+}
+
+/* ===== SCROLLBAR CHROMA RETRO (Estilo Consola) ===== */
+::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+}
+
+::-webkit-scrollbar-track {
+    background: #080810;
+    border: 1px solid #1a1a2e;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #ff00ff;
+    border: 2px solid #000;
+    box-shadow: inset 1px 1px 0px #fff;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #00ffff;
+}

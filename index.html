@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChurraGol</title>
+    <link rel="icon" type="image/x-icon" href="assets/images/favicon.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- Contenedor principal donde se dibuja el juego -->
+    <div id="game-container">
+        <canvas id="gameCanvas"></canvas>
+
+        <!-- Capa HTML superpuesta para menús, formularios, botones, etc -->
+        <div id="ui-layer"></div>
+    </div>
+
+    <!-- Orden de carga importante: storage y render primero, main al final -->
+    <script src="https://cdn.jsdelivr.net/npm/localforage@1.10.0/dist/localforage.min.js"></script>
+    <script src="js/storage.js"></script>
+    <script src="js/render.js"></script>
+    <script src="js/menu.js"></script>
+    <script src="js/editor.js"></script>
+    <script src="js/teamSelect.js"></script>
+    <script src="js/ai.js"></script>
+    <script src="js/game.js"></script>
+    <script src="js/powerups.js"></script>
+    <script src="js/main.js"></script>
+
+</body>
+</html>
