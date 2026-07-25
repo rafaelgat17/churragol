@@ -189,7 +189,7 @@ const EditorScreen = {
         }
     },
 
-    handleAction(btn) {
+handleAction(btn) {
         if (btn.id === "volver") {
             if (this.vista === "liga_detalle") {
                 this.vista = "ligas";
@@ -274,6 +274,8 @@ const EditorScreen = {
             if (confirm("¿Eliminar esta selección?")) {
                 deleteSeleccion(id);
             }
+        } else if (btn.id === "exportar_json") {
+            exportarDatosAJuegoJSON();
         }
     },
 
@@ -338,7 +340,7 @@ const EditorScreen = {
         this.patternOffset = (this.patternOffset + 0.35) % paso;
     },
 
-    drawCategorias(ctx) {
+drawCategorias(ctx) {
         drawRetroText(ctx, "EDITOR", canvas.width / 2, 70, 28, "#ffff00");
 
         const panelW = 260;
@@ -346,7 +348,7 @@ const EditorScreen = {
         const espacio = 40;
         const totalW = panelW * 2 + espacio;
         const startX = canvas.width / 2 - totalW / 2;
-        const startY = canvas.height / 2 - panelH / 2;
+        const startY = canvas.height / 2 - panelH / 2 - 20;
 
         drawRetroPanel(ctx, startX - 12, startY - 12, panelW + 24, panelH + 24, "#001022", "#00ffff");
         drawRetroPanel(ctx, startX + panelW + espacio - 12, startY - 12, panelW + 24, panelH + 24, "#001022", "#00ffff");
@@ -358,6 +360,16 @@ const EditorScreen = {
         const catSelecciones = drawRetroButton(ctx, "SELECCIONES", startX + panelW + espacio, startY, panelW, panelH, this.hover === "cat_selecciones", 20);
         catSelecciones.id = "cat_selecciones";
         this.botones.push(catSelecciones);
+
+        // Botón para exportar los datos a datos_juego.json
+        const btnExpW = 280;
+        const btnExpH = 40;
+        const expX = canvas.width / 2 - btnExpW / 2;
+        const expY = startY + panelH + 40;
+
+        const btnExportar = drawRetroButton(ctx, "EXPORTAR JSON", expX, expY, btnExpW, btnExpH, this.hover === "exportar_json", 14);
+        btnExportar.id = "exportar_json";
+        this.botones.push(btnExportar);
     },
 
     drawListado(ctx, tipo) {
@@ -1152,4 +1164,22 @@ function drawRetroTextWrapped(ctx, text, x, y, maxWidth, fontSize, color = "#fff
     });
 
     ctx.restore();
+}
+
+// =========================================================
+// FUNCIÓN PARA EXPORTAR DATOS A JSON
+// =========================================================
+function exportarDatosAJuegoJSON() {
+    const data = loadData();
+    const jsonStr = JSON.stringify(data, null, 2);
+    const blob = new Blob([jsonStr], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "datos_juego.json";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
 }

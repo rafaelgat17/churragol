@@ -98,22 +98,60 @@ function bucleJuego() {
 }
 
 // ---------------------------------------------------------
-// ARRANQUE DEL JUEGO (Asíncrono con IndexedDB)
+// CARGA INICIAL DEL JSON
+// ---------------------------------------------------------
+async function cargarJSONBase() {
+    try {
+        const res = await fetch("./datos_juego.json");
+        if (res.ok) {
+            const data = await res.json();
+            
+            // Intentamos guardar tanto en localForage como en localStorage por seguridad
+            if (typeof localforage !== "undefined") {
+                await localforage.setItem("datos_juego", data);
+            }
+            localStorage.setItem("datos_juego", JSON.stringify(data));
+            
+            console.log("✅ JSON cargado e inyectado correctamente:", data);
+            return data;
+        } else {
+            console.error("❌ No se encontró el archivo datos_juego.json en la raíz.");
+        }
+    } catch (e) {
+        console.error("❌ Error al hacer fetch de datos_juego.json:", e);
+    }
+    return null;
+}
+
+// ---------------------------------------------------------
+// ARRANQUE DEL JUEGO
 // ---------------------------------------------------------
 window.addEventListener("resize", ajustarTamanoCanvas);
 
 window.addEventListener("DOMContentLoaded", async () => {
-    // 1. Ajustar dimensiones del canvas
     ajustarTamanoCanvas();
 
-    // 2. Esperar a que el storage (IndexedDB) cargue los datos o migre los de localStorage
-    if (typeof initStorage === "function") {
-        await initStorage();
-    } else {
-        console.warn("initStorage no está definido. Asegúrate de cargar storage.js correctamente.");
+    // 1. Comprobamos si hay datos guardados
+    let datos = null;
+    if (typeof localforage !== "undefined") {
+        datos = await localforage.getItem("datos_juego");
+    }
+    if (!datos) {
+        datos = localStorage.getItem("datos_juego");
     }
 
-    // 3. Entrar al menú e iniciar el bucle de juego una vez cargados los datos
+    // 2. Si no hay datos (porque borraste IndexedDB/localStorage), cargamos el JSON
+    if (!datos) {
+        console.log("⚠️ No se detectaron datos guardados. Intentando cargar datos_juego.json...");
+        await cargarJSONBase();
+    }
+
+    // 3. Inicializamos el almacenamiento global (storage.js)
+    if (typeof initStorage === "function") {
+        await initStorage();
+    }
+
+    // 4. Arrancamos
     cambiarPantalla("menu");
     bucleJuego();
 });

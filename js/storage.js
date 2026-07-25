@@ -21,15 +21,14 @@ function getDefaultData() {
 
 /**
  * Inicializa el almacenamiento desde IndexedDB.
- * Migra los datos viejos de localStorage automáticamente si existen.
- * DEBE llamarse al arrancar el juego (ej. en main.js) antes de iniciar la interfaz.
+ * Si no encuentra datos guardados, lee 'datos_juego.json' como base.
  */
 async function initStorage() {
     try {
-        // 1. Intentar cargar desde IndexedDB
+        // 1. Intentar cargar desde IndexedDB (localForage)
         let data = await localforage.getItem(STORAGE_KEY);
 
-        // 2. Si no hay nada en IndexedDB, buscar si hay datos antiguos en localStorage (MIGRACIÓN)
+        // 2. Si no hay nada en IndexedDB, buscar en localStorage por retrocompatibilidad
         if (!data) {
             const rawLocal = localStorage.getItem(STORAGE_KEY);
             if (rawLocal) {
@@ -37,15 +36,31 @@ async function initStorage() {
                     data = JSON.parse(rawLocal);
                     console.log("Migrando datos existentes de localStorage a IndexedDB...");
                     await localforage.setItem(STORAGE_KEY, data);
-                    localStorage.removeItem(STORAGE_KEY); // Limpiar espacio antiguo
-                    console.log("¡Migración a IndexedDB completada!");
+                    localStorage.removeItem(STORAGE_KEY);
                 } catch (e) {
                     console.error("Error al parsear datos antiguos de localStorage:", e);
                 }
             }
         }
 
-        // 3. Asignar a la memoria global
+        // 3. Si sigue sin haber datos, cargamos el archivo datos_juego.json de la raíz
+        if (!data) {
+            console.log("⚠️ No hay datos en IndexedDB/localStorage. Cargando datos_juego.json...");
+            try {
+                const res = await fetch("./datos_juego.json");
+                if (res.ok) {
+                    data = await res.json();
+                    await localforage.setItem(STORAGE_KEY, data);
+                    console.log("✅ ¡Base de datos inicializada con exito desde datos_juego.json!");
+                } else {
+                    console.error("❌ No se pudo encontrar datos_juego.json en la carpeta raíz.");
+                }
+            } catch (fetchErr) {
+                console.error("❌ Error al leer datos_juego.json:", fetchErr);
+            }
+        }
+
+        // 4. Asignar a la memoria global
         cachedData = data || getDefaultData();
         return cachedData;
     } catch (err) {
