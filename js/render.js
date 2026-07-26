@@ -26,21 +26,31 @@ function drawRetroPanel(ctx, x, y, w, h, colorFondo = "#000080", colorBorde = "#
 }
 
 // Dibuja texto con estilo retro (fuente pixelada, con sombra tipo 8-bit)
-function drawRetroText(ctx, text, x, y, size = 20, color = "#ffff00", align = "center") {
+function drawRetroText(ctx, text, x, y, size = 20, color = "#f5f5f5", align = "center") {
     ctx.save();
     ctx.font = `${size}px 'Press Start 2P', monospace`;
     ctx.textAlign = align;
     ctx.textBaseline = "middle";
 
-    // Sombra del texto (efecto retro tipo consola)
-    ctx.fillStyle = "#000";
-    ctx.fillText(text, x + 3, y + 3);
+    // Sombra del texto (efecto retro tipo consola). Se omite si el texto
+    // ya es negro, porque la sombra negra se confunde con la letra.
+    if (!esColorNegro(color)) {
+        ctx.fillStyle = "#000";
+        ctx.fillText(text, x + 3, y + 3);
+    }
 
-    // Texto principal
     ctx.fillStyle = color;
     ctx.fillText(text, x, y);
 
     ctx.restore();
+}
+
+// Comprueba si un color es negro (o casi), para decidir si tiene
+// sentido dibujarle una sombra negra detrás
+function esColorNegro(color) {
+    if (!color) return false;
+    const c = color.toString().toLowerCase().trim();
+    return c === "#000" || c === "#000000" || c === "black" || c === "rgb(0,0,0)";
 }
 
 // Dibuja el escudo de un equipo (imagen) dentro de un rectángulo blanco
@@ -123,27 +133,22 @@ function hexToRGBA(hex, alpha = 1) {
 
 // Dibuja texto reduciendo el tamaño de letra automáticamente hasta que
 // quepa entero en el ancho disponible (optimizado para evitar bucles pesados)
-function drawRetroTextFit(ctx, text, x, y, maxWidth, maxSize, color = "#ffff00", align = "center") {
+function drawRetroTextFit(ctx, text, x, y, maxWidth, maxSize, color = "#f5f5f5", align = "center") {
+    let size = maxSize;
     const minSize = 6;
-    const normalizedColor = color.toString().trim().toLowerCase();
-    const drawShadow = normalizedColor !== "#000000" && normalizedColor !== "black";
 
     ctx.save();
     ctx.textAlign = align;
     ctx.textBaseline = "middle";
 
-    // Medimos con el tamaño máximo
-    ctx.font = `${maxSize}px 'Press Start 2P', monospace`;
-    const textWidth = ctx.measureText(text).width;
-    
-    // Calculamos el tamaño proporcional de golpe
-    let size = maxSize;
-    if (textWidth > maxWidth && textWidth > 0) {
-        size = Math.max(minSize, Math.floor(maxSize * (maxWidth / textWidth)));
+    while (size > minSize) {
+        ctx.font = `${size}px 'Press Start 2P', monospace`;
+        if (ctx.measureText(text).width <= maxWidth) break;
+        size -= 1;
     }
 
     ctx.font = `${size}px 'Press Start 2P', monospace`;
-    if (drawShadow) {
+    if (!esColorNegro(color)) {
         ctx.fillStyle = "#000";
         ctx.fillText(text, x + 2, y + 2);
     }
@@ -169,24 +174,34 @@ function getContrastTextColor(hexColor) {
 }
 
 // Escribe un texto en varias líneas dentro de un área fija (para nombres
-// largos de equipos/ligas), sin agrandar el contenedor. Reduce el tamaño
-// de letra solo si hace falta para que todas las líneas quepan en el alto
-// disponible; si con el tamaño mínimo sigue sin caber, recorta la última
-// línea con puntos suspensivos.
+// largos de equipos/ligas), sin agrandar el contenedor.
+// Prioridad: 1) el tamaño más grande que quepa en alto SIN partir
+// ninguna palabra por la mitad. 2) Si ni al tamaño mínimo cabe entera
+// una palabra, se parte, pero repartida de forma equilibrada entre
+// las líneas que hagan falta (no "casi toda la palabra" + "una letra").
 function drawWrappedCardName(ctx, text, cx, areaTop, maxWidth, maxHeight, maxSize, color) {
     const minSize = 7;
     let size = maxSize;
     let lineas = [];
+    let mejorSize = minSize;
+    let mejorLineas = null;
 
-    while (size >= minSize) {
+    for (size = maxSize; size >= minSize; size--) {
         ctx.font = `${size}px 'Press Start 2P', monospace`;
         lineas = wrapTextByWidth(ctx, text, maxWidth);
+        const rompioPalabra = wrapTextByWidth.rompioPalabra;
         const lineHeight = size * 1.5;
         const alturaTotal = lineas.length * lineHeight;
-        if (alturaTotal <= maxHeight) break;
-        size -= 1;
+
+        if (alturaTotal <= maxHeight) {
+            mejorSize = size;
+            mejorLineas = lineas;
+            if (!rompioPalabra) break; // el más grande sin partir palabras: nos quedamos con este
+        }
     }
 
+    size = mejorSize;
+    lineas = mejorLineas || lineas;
     ctx.font = `${size}px 'Press Start 2P', monospace`;
     const lineHeight = size * 1.5;
     let alturaTotal = lineas.length * lineHeight;
@@ -210,12 +225,14 @@ function drawWrappedCardName(ctx, text, cx, areaTop, maxWidth, maxHeight, maxSiz
 }
 
 // Parte un texto en líneas que quepan en maxWidth, usando el font ya
-// establecido en ctx. Si una sola palabra es más ancha que maxWidth,
-// la corta letra a letra.
+// establecido en ctx. Si una palabra sola no cabe en una línea, se
+// reparte equilibradamente (ver wrapWordEvenly) en vez de rellenar
+// la primera línea al máximo y dejar una letra suelta al final.
 function wrapTextByWidth(ctx, text, maxWidth) {
     const palabras = text.split(" ");
     const lineas = [];
     let lineaActual = "";
+    let rompioAlgunaPalabra = false;
 
     palabras.forEach(palabra => {
         const pruebaLinea = lineaActual ? lineaActual + " " + palabra : palabra;
@@ -224,22 +241,40 @@ function wrapTextByWidth(ctx, text, maxWidth) {
         } else {
             if (lineaActual) lineas.push(lineaActual);
             if (ctx.measureText(palabra).width > maxWidth) {
-                let trozo = "";
-                for (const letra of palabra) {
-                    const pruebaTrozo = trozo + letra;
-                    if (ctx.measureText(pruebaTrozo).width > maxWidth && trozo) {
-                        lineas.push(trozo);
-                        trozo = letra;
-                    } else {
-                        trozo = pruebaTrozo;
-                    }
-                }
-                lineaActual = trozo;
+                rompioAlgunaPalabra = true;
+                const subLineas = wrapWordEvenly(ctx, palabra, maxWidth);
+                lineas.push(...subLineas.slice(0, -1));
+                lineaActual = subLineas[subLineas.length - 1];
             } else {
                 lineaActual = palabra;
             }
         }
     });
     if (lineaActual) lineas.push(lineaActual);
+
+    wrapTextByWidth.rompioPalabra = rompioAlgunaPalabra;
+    return lineas;
+}
+
+// Reparte una palabra demasiado larga en tantas líneas como haga falta,
+// intentando que todas midan aproximadamente lo mismo (en vez de llenar
+// la primera al máximo y dejar los últimos caracteres sueltos)
+function wrapWordEvenly(ctx, word, maxWidth) {
+    const anchoTotal = ctx.measureText(word).width;
+    const numLineas = Math.max(1, Math.ceil(anchoTotal / maxWidth));
+    const objetivoPorLinea = Math.ceil(word.length / numLineas);
+
+    const lineas = [];
+    let index = 0;
+    while (index < word.length) {
+        let fin = Math.min(word.length, index + objetivoPorLinea);
+        let trozo = word.slice(index, fin);
+        while (ctx.measureText(trozo).width > maxWidth && trozo.length > 1) {
+            trozo = trozo.slice(0, -1);
+        }
+        if (trozo.length === 0) trozo = word[index];
+        lineas.push(trozo);
+        index += trozo.length;
+    }
     return lineas;
 }

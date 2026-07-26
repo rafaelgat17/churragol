@@ -39,8 +39,12 @@ const POSTE_RADIO = 6;
 
 let porteriaMultiplicadorActual = 1;
 
-let hieloActivo = false;
-let esperandoParadaTrasHielo = false;
+let hieloActivo = false; // solo para estética del césped y la fricción
+
+// "Bypass" de la espera de movimiento: mientras hielo o multibalón estén
+// activos, no hace falta que todo esté parado del todo para cambiar de turno
+let bypassMovimientoActivo = false;
+let esperandoParadaTrasBypass = false;
 
 // Balones extra del power-up MULTI_BALL
 let balonesExtra = [];
@@ -720,18 +724,26 @@ function resolverColisionPostes(entidad) {
     });
 }
 
-function actualizarEstadoHielo(fichas, balon) {
-    const hieloActivoAhora = tieneEfectoActivo('HIELO');
+function actualizarEstadoHielo() {
+    hieloActivo = tieneEfectoActivo('HIELO');
+}
 
-    if (hieloActivo && !hieloActivoAhora) {
+// Igual que antes pasaba solo con el hielo, ahora también con el
+// multibalón: mientras cualquiera de los dos esté activo, se puede
+// disparar aunque algo siga moviéndose. Si termina el efecto con cosas
+// aún en marcha, se espera a que paren del todo antes de dar el turno.
+function actualizarBypassMovimientoTurno(fichas, balon) {
+    const activoAhora = tieneEfectoActivo('HIELO') || tieneEfectoActivo('MULTI_BALL');
+
+    if (bypassMovimientoActivo && !activoAhora) {
         if (hayMovimientoFisicoReal(fichas, balon)) {
-            esperandoParadaTrasHielo = true;
+            esperandoParadaTrasBypass = true;
         }
     }
-    hieloActivo = hieloActivoAhora;
+    bypassMovimientoActivo = activoAhora;
 
-    if (esperandoParadaTrasHielo && !hayMovimientoFisicoReal(fichas, balon)) {
-        esperandoParadaTrasHielo = false;
+    if (esperandoParadaTrasBypass && !hayMovimientoFisicoReal(fichas, balon)) {
+        esperandoParadaTrasBypass = false;
     }
 }
 
@@ -990,7 +1002,8 @@ function actualizarFisicas(fichas, balon, deltaTime) {
         porteriaMultiplicadorActual = estadoPowerUps.goalSizeMultiplier || 1;
     }
 
-    actualizarEstadoHielo(fichas, balon);
+    actualizarEstadoHielo();
+    actualizarBypassMovimientoTurno(fichas, balon);
     actualizarMultiball();
     actualizarFormaBalones();
     actualizarFreezeBall();
@@ -1039,8 +1052,8 @@ function hayMovimientoFisicoReal(fichas, balon) {
 }
 
 function hayEntidadesEnMovimiento(fichas, balon) {
-    if (esperandoParadaTrasHielo) return true;
-    if (hieloActivo) return false;
+    if (esperandoParadaTrasBypass) return true;
+    if (bypassMovimientoActivo) return false;
     return hayMovimientoFisicoReal(fichas, balon);
 }
 
