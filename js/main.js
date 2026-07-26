@@ -28,7 +28,8 @@ const Pantallas = {
     menu: MenuScreen,
     editor: EditorScreen,
     teamSelect: TeamSelectScreen,
-    game: GameScreen
+    game: GameScreen,
+    onlineLobby: OnlineLobbyScreen
 };
 
 let pantallaActual = null;

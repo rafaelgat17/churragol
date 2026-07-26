@@ -1,6 +1,7 @@
 // =========================================================
 // MENU.JS
-// Pantalla del menú principal: Logo + botones JUGAR / EDITOR / SALIR
+// Pantalla del menú principal: Logo + botones JUGAR / EDITOR-1VS1 / SALIR
+// El segundo botón cambia según MODO_ADMIN (ver config.js)
 // =========================================================
 
 const MenuScreen = {
@@ -56,6 +57,8 @@ const MenuScreen = {
             cambiarPantalla("teamSelect");
         } else if (id === "editor") {
             cambiarPantalla("editor");
+        } else if (id === "online") {
+            cambiarPantalla("onlineLobby");
         } else if (id === "salir") {
             // En navegador no se puede "cerrar" la pestaña por seguridad,
             // así que mostramos un mensaje simpático en su lugar
@@ -83,9 +86,14 @@ const MenuScreen = {
         let btnY = 290;
         const espacio = 72;
 
+        // El segundo botón cambia según el modo (ver config.js)
+        const segundoBoton = MODO_ADMIN
+            ? { id: "editor", texto: "EDITOR" }
+            : { id: "online", texto: "1 VS 1" };
+
         const opciones = [
             { id: "jugar", texto: "JUGAR" },
-            { id: "editor", texto: "EDITOR" },
+            segundoBoton,
             { id: "salir", texto: "SALIR" }
         ];
 

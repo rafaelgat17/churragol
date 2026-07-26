@@ -167,3 +167,79 @@ function getContrastTextColor(hexColor) {
     const luminancia = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
     return luminancia > 0.6 ? "#000000" : "#ffffff";
 }
+
+// Escribe un texto en varias líneas dentro de un área fija (para nombres
+// largos de equipos/ligas), sin agrandar el contenedor. Reduce el tamaño
+// de letra solo si hace falta para que todas las líneas quepan en el alto
+// disponible; si con el tamaño mínimo sigue sin caber, recorta la última
+// línea con puntos suspensivos.
+function drawWrappedCardName(ctx, text, cx, areaTop, maxWidth, maxHeight, maxSize, color) {
+    const minSize = 7;
+    let size = maxSize;
+    let lineas = [];
+
+    while (size >= minSize) {
+        ctx.font = `${size}px 'Press Start 2P', monospace`;
+        lineas = wrapTextByWidth(ctx, text, maxWidth);
+        const lineHeight = size * 1.5;
+        const alturaTotal = lineas.length * lineHeight;
+        if (alturaTotal <= maxHeight) break;
+        size -= 1;
+    }
+
+    ctx.font = `${size}px 'Press Start 2P', monospace`;
+    const lineHeight = size * 1.5;
+    let alturaTotal = lineas.length * lineHeight;
+
+    const maxLineas = Math.max(1, Math.floor(maxHeight / lineHeight));
+    if (lineas.length > maxLineas) {
+        lineas = lineas.slice(0, maxLineas);
+        let ultima = lineas[maxLineas - 1];
+        while (ctx.measureText(ultima + "...").width > maxWidth && ultima.length > 1) {
+            ultima = ultima.slice(0, -1);
+        }
+        lineas[maxLineas - 1] = ultima + "...";
+        alturaTotal = lineas.length * lineHeight;
+    }
+
+    const startY = areaTop + Math.max(0, (maxHeight - alturaTotal) / 2) + lineHeight / 2;
+
+    lineas.forEach((linea, i) => {
+        drawRetroText(ctx, linea, cx, startY + i * lineHeight, size, color);
+    });
+}
+
+// Parte un texto en líneas que quepan en maxWidth, usando el font ya
+// establecido en ctx. Si una sola palabra es más ancha que maxWidth,
+// la corta letra a letra.
+function wrapTextByWidth(ctx, text, maxWidth) {
+    const palabras = text.split(" ");
+    const lineas = [];
+    let lineaActual = "";
+
+    palabras.forEach(palabra => {
+        const pruebaLinea = lineaActual ? lineaActual + " " + palabra : palabra;
+        if (ctx.measureText(pruebaLinea).width <= maxWidth) {
+            lineaActual = pruebaLinea;
+        } else {
+            if (lineaActual) lineas.push(lineaActual);
+            if (ctx.measureText(palabra).width > maxWidth) {
+                let trozo = "";
+                for (const letra of palabra) {
+                    const pruebaTrozo = trozo + letra;
+                    if (ctx.measureText(pruebaTrozo).width > maxWidth && trozo) {
+                        lineas.push(trozo);
+                        trozo = letra;
+                    } else {
+                        trozo = pruebaTrozo;
+                    }
+                }
+                lineaActual = trozo;
+            } else {
+                lineaActual = palabra;
+            }
+        }
+    });
+    if (lineaActual) lineas.push(lineaActual);
+    return lineas;
+}

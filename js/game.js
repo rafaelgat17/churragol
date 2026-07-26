@@ -2,6 +2,7 @@
 // GAME.JS
 // Motor del partido: campo, fichas, balón, físicas, marcador
 // (El sistema de power-ups vive en powerups.js)
+// Incluye soporte para partidas 1 VS 1 online (host/invitado)
 // =========================================================
 
 // ---------------------------------------------------------
@@ -44,13 +45,34 @@ let esperandoParadaTrasHielo = false;
 // Balones extra del power-up MULTI_BALL
 let balonesExtra = [];
 let multiballActivoAnterior = false;
-// Mientras esté true, los balones extra no reciben impulso autónomo
-// (se usa justo tras un gol para no liarla antes del saque)
 let balonesExtraCongelados = false;
 
 let fichaCongelada = null; // ficha inmovilizada por FREEZE_BALL + STICKY_BALL a la vez
 
 let penaltiState = { activo: false, equipoAtacante: null };
+
+// ---------------------------------------------------------
+// ESTADO ONLINE
+// El motor sigue usando internamente "jugador" (izquierda) y
+// "cpu" (derecha) para todo. El host SIEMPRE controla "jugador",
+// el invitado SIEMPRE controla "cpu" (sin espejar nada visualmente).
+// ---------------------------------------------------------
+let modoOnline = false;
+let esHostOnline = false;
+
+// Devuelve qué lado ("jugador" o "cpu") controla la persona que
+// está viendo ESTA pantalla
+function getLadoLocal() {
+    if (!modoOnline) return "jugador";
+    return esHostOnline ? "jugador" : "cpu";
+}
+
+// ¿Es el turno de la persona que está viendo esta pantalla?
+function esTurnoLocal(estado) {
+    if (estado === "esperando_jugador") return getLadoLocal() === "jugador";
+    if (estado === "pensando_cpu") return getLadoLocal() === "cpu";
+    return false;
+}
 
 // ---------------------------------------------------------
 // ENTIDAD: FICHA
@@ -67,15 +89,15 @@ class Ficha {
         this.colorFondo = colorFondo;
         this.colorBorde = colorBorde;
         this.escudoImg = escudoImg;
-        this.seleccionable = (equipo === "jugador");
+        this.seleccionable = (equipo === getLadoLocal());
         this.spawnX = x;
         this.spawnY = y;
         this.ultimoDisparoMaximo = false;
         this.respawnTimer = 0;
         this.respawnAnim = 0;
         this.rainbowPower = false;
-        this.enCorrillo = false; // true durante el modo penalti: no seleccionable, pero SÍ tiene física
-        this.congelada = false;  // true si FREEZE_BALL + STICKY_BALL la inmovilizan
+        this.enCorrillo = false;
+        this.congelada = false;
     }
 
     estaQuieta() {
@@ -383,9 +405,6 @@ function actualizarMovimiento(entidad) {
         }
     }
 
-    // Solo la ficha "congelada" (freeze_ball + sticky) queda totalmente
-    // inmóvil. Las fichas en corrillo SÍ tienen física normal (pueden
-    // ser empujadas), simplemente no son seleccionables.
     if (entidad instanceof Ficha && entidad.congelada) {
         entidad.vx = 0;
         entidad.vy = 0;
@@ -524,8 +543,6 @@ function resolverColisionCirculos(a, b) {
     }
 }
 
-// Choque a máxima potencia: ambas fichas explotan. Si ocurre dentro de
-// un área, se activa el modo penalti a favor del equipo que defiende esa zona
 function handleMaxPowerCollision(a, b) {
     const zona = estaEnAreaPenalti((a.x + b.x) / 2, (a.y + b.y) / 2);
     const fichaA = a, fichaB = b;
@@ -749,8 +766,6 @@ function spawnBalonesExtra(cantidad) {
     }
 }
 
-// Igual que spawnBalonesExtra, pero sin velocidad inicial: se usa tras
-// un gol para que las copias no se pongan en marcha hasta el próximo saque
 function spawnBalonesExtraQuietos(cantidad) {
     const campo = getCampoRect();
     for (let i = 0; i < cantidad; i++) {
@@ -869,19 +884,12 @@ function actualizarFreezeBall() {
 // ---------------------------------------------------------
 // MODO PENALTI
 // ---------------------------------------------------------
-
-// Cancela cualquier buff que afecte al ESTADO del balón (tamaño, forma,
-// parado, pegajoso, multibalón). Se desactivan del todo con el penalti:
-// después, se vuelve a la normalidad sacando de centro.
 function desactivarBuffsDeBalonParaPenalti() {
     if (typeof powerUpManager === 'undefined') return;
     const idsBalon = ['BIG_BALL', 'GIANT_BRICK', 'FREEZE_BALL', 'STICKY_BALL', 'MULTI_BALL'];
     powerUpManager.activeEffects = powerUpManager.activeEffects.filter(e => !idsBalon.includes(e.id));
 }
 
-// zonaAreaGolpe: área ('izquierda' o 'derecha') donde ocurrió el choque.
-// El equipo que DEFIENDE esa zona se beneficia del penalti, que se tira
-// contra la portería contraria (la zona opuesta a donde ocurrió el choque).
 function iniciarPenalti(zonaAreaGolpe, fichaA, fichaB) {
     const equipoAtacante = zonaAreaGolpe === 'izquierda' ? 'jugador' : 'cpu';
     const equipoDefensor = equipoAtacante === 'jugador' ? 'cpu' : 'jugador';
@@ -894,14 +902,9 @@ function iniciarPenalti(zonaAreaGolpe, fichaA, fichaB) {
     const puntoPenaltiX = equipoAtacante === 'jugador'
         ? campo.x + campo.w - 130
         : campo.x + 130;
-    // El tirador se coloca detrás del balón, dejando algo de distancia
-    // para que el penalti tenga un mínimo de dificultad
     const offsetTirador = equipoAtacante === 'jugador' ? -45 : 45;
     const tiradorX = puntoPenaltiX + offsetTirador;
 
-    // Identifica exactamente las dos fichas que colisionaron: la del
-    // equipo defensor se convierte en el portero (fijo), la del
-    // atacante en el tirador
     const candidatas = [fichaA, fichaB];
     const portero = candidatas.find(f => f.equipo === equipoDefensor) || null;
     const tirador = candidatas.find(f => f.equipo === equipoAtacante) || null;
@@ -914,7 +917,7 @@ function iniciarPenalti(zonaAreaGolpe, fichaA, fichaB) {
         portero.y = centroY;
         portero.vx = 0;
         portero.vy = 0;
-        portero.masa = 999; // prácticamente inamovible durante el penalti
+        portero.masa = 999;
     }
 
     if (tirador) {
@@ -927,8 +930,6 @@ function iniciarPenalti(zonaAreaGolpe, fichaA, fichaB) {
         tirador.vy = 0;
     }
 
-    // El resto hace "corrillo" lejos de la jugada, con física normal
-    // (pueden ser empujados) pero sin poder actuar
     const resto = fichasPartido.filter(f => f !== portero && f !== tirador);
     const centroX = campo.x + campo.w / 2;
     const alejamiento = equipoAtacante === 'jugador' ? -1 : 1;
@@ -973,7 +974,8 @@ function finalizarPenalti() {
 }
 
 // ---------------------------------------------------------
-// Actualiza TODA la física de un frame
+// Actualiza TODA la física de un frame (SOLO la ejecuta el host
+// en modo online; en offline la ejecuta el único jugador siempre)
 // ---------------------------------------------------------
 function actualizarFisicas(fichas, balon, deltaTime) {
     actualizarTimers(fichas, deltaTime);
@@ -1030,8 +1032,6 @@ function actualizarFisicas(fichas, balon, deltaTime) {
     });
 }
 
-// Ya NO tiene en cuenta a los balones extra del multibalón (se mueven
-// solos indefinidamente, no deben bloquear el cambio de turno)
 function hayMovimientoFisicoReal(fichas, balon) {
     if (!balon.estaQuieto()) return true;
     if (fichas.some(f => f.respawnTimer > 0 || f.respawnAnim > 0)) return true;
@@ -1062,7 +1062,7 @@ const ControlJugador = {
     },
 
     onMouseDown(mx, my, fichas, balon) {
-        if (TurnoPartido.estado !== "esperando_jugador") return;
+        if (!esTurnoLocal(TurnoPartido.estado)) return;
         if (hayEntidadesEnMovimiento(fichas, balon)) return;
 
         const ficha = fichas.find(f => {
@@ -1103,12 +1103,21 @@ const ControlJugador = {
 
             const nx = dx / distancia;
             const ny = dy / distancia;
+            const vx = nx * potencia;
+            const vy = ny * potencia;
+            const maxima = potencia >= MAX_POTENCIA_DISPARO * 0.98;
 
-            this.fichaSeleccionada.vx = nx * potencia;
-            this.fichaSeleccionada.vy = ny * potencia;
-            this.fichaSeleccionada.ultimoDisparoMaximo = potencia >= MAX_POTENCIA_DISPARO * 0.98;
-
-            TurnoPartido.notificarDisparoJugador();
+            if (modoOnline && !esHostOnline) {
+                // El invitado NO aplica el disparo localmente: lo manda
+                // al host, que es quien tiene la física real
+                const idx = fichasPartido.indexOf(this.fichaSeleccionada);
+                OnlineManager.enviar("disparoGuest", { fichaIndex: idx, vx, vy, maxima });
+            } else {
+                this.fichaSeleccionada.vx = vx;
+                this.fichaSeleccionada.vy = vy;
+                this.fichaSeleccionada.ultimoDisparoMaximo = maxima;
+                TurnoPartido.notificarDisparoJugador();
+            }
         }
 
         this.reset();
@@ -1176,6 +1185,8 @@ const ControlJugador = {
 
 // =========================================================
 // SISTEMA DE TURNOS
+// En offline, "pensando_cpu" es la IA. En online, es el turno
+// del rival humano (mismo estado, distinto comportamiento).
 // =========================================================
 const TIEMPO_PENSAMIENTO_CPU = 2;
 const TIEMPO_LIMITE_JUGADOR = 5;
@@ -1189,7 +1200,7 @@ const TurnoPartido = {
     reset(quienEmpieza) {
         if (quienEmpieza === "cpu") {
             this.estado = "pensando_cpu";
-            this.tiempoPensandoCPU = TIEMPO_PENSAMIENTO_CPU;
+            this.tiempoPensandoCPU = modoOnline ? TIEMPO_LIMITE_JUGADOR : TIEMPO_PENSAMIENTO_CPU;
         } else {
             this.estado = "esperando_jugador";
             this.tiempoEsperaJugador = TIEMPO_LIMITE_JUGADOR;
@@ -1204,7 +1215,7 @@ const TurnoPartido = {
                 }
                 if (this.turnoSiguiente === "cpu") {
                     this.estado = "pensando_cpu";
-                    this.tiempoPensandoCPU = TIEMPO_PENSAMIENTO_CPU;
+                    this.tiempoPensandoCPU = modoOnline ? TIEMPO_LIMITE_JUGADOR : TIEMPO_PENSAMIENTO_CPU;
                 } else {
                     this.estado = "esperando_jugador";
                     this.tiempoEsperaJugador = TIEMPO_LIMITE_JUGADOR;
@@ -1213,11 +1224,18 @@ const TurnoPartido = {
         } else if (this.estado === "pensando_cpu") {
             this.tiempoPensandoCPU -= deltaTime;
             if (this.tiempoPensandoCPU <= 0) {
-                const fichasCPU = fichasPartido.filter(f => f.equipo === "cpu" && !f.enCorrillo);
-                ControlCPU.dispararTurno(fichasCPU, balonPartidoParam);
-                balonesExtraCongelados = false;
-                this.turnoSiguiente = "jugador";
-                this.estado = "animando";
+                if (modoOnline) {
+                    // El rival humano no disparó a tiempo: pasa el turno igualmente
+                    balonesExtraCongelados = false;
+                    this.turnoSiguiente = "jugador";
+                    this.estado = "animando";
+                } else {
+                    const fichasCPU = fichasPartido.filter(f => f.equipo === "cpu" && !f.enCorrillo);
+                    ControlCPU.dispararTurno(fichasCPU, balonPartidoParam);
+                    balonesExtraCongelados = false;
+                    this.turnoSiguiente = "jugador";
+                    this.estado = "animando";
+                }
             }
         } else if (this.estado === "esperando_jugador") {
             const bloqueado = hayEntidadesEnMovimiento(fichasPartidoParam, balonPartidoParam);
@@ -1226,7 +1244,7 @@ const TurnoPartido = {
                 if (this.tiempoEsperaJugador <= 0) {
                     ControlJugador.reset();
                     this.estado = "pensando_cpu";
-                    this.tiempoPensandoCPU = TIEMPO_PENSAMIENTO_CPU;
+                    this.tiempoPensandoCPU = modoOnline ? TIEMPO_LIMITE_JUGADOR : TIEMPO_PENSAMIENTO_CPU;
                 }
             }
         }
@@ -1263,7 +1281,6 @@ const EstadoPartido = {
     }
 };
 
-// Solo el balón principal cuenta como gol; los balones del multibalón NO
 function comprobarGol(balon) {
     if (EstadoPartido.fase !== "jugando") return null;
 
@@ -1422,11 +1439,13 @@ function drawIndicadorTurno(ctx) {
     let countdown = null;
 
     if (TurnoPartido.estado === "esperando_jugador") {
-        texto = "TU TURNO";
         countdown = Math.max(0, Math.ceil(TurnoPartido.tiempoEsperaJugador));
+        texto = modoOnline ? (getLadoLocal() === "jugador" ? "TU TURNO" : "TURNO RIVAL") : "TU TURNO";
     } else if (TurnoPartido.estado === "pensando_cpu") {
-        texto = "PENSANDO CPU...";
         countdown = Math.max(0, Math.ceil(TurnoPartido.tiempoPensandoCPU));
+        texto = modoOnline
+            ? (getLadoLocal() === "cpu" ? "TU TURNO" : "TURNO RIVAL")
+            : "PENSANDO CPU...";
     }
 
     if (!texto) return;
@@ -1453,13 +1472,16 @@ function drawIndicadorTurno(ctx) {
 
 function drawTemporizadorFichas(ctx) {
     if (EstadoPartido.fase !== "jugando") return;
-    if (TurnoPartido.estado !== "esperando_jugador") return;
+    if (!esTurnoLocal(TurnoPartido.estado)) return;
 
-    const ratio = Math.max(0, Math.min(1, TurnoPartido.tiempoEsperaJugador / TIEMPO_LIMITE_JUGADOR));
+    const tiempoRestanteTurno = TurnoPartido.estado === "esperando_jugador"
+        ? TurnoPartido.tiempoEsperaJugador
+        : TurnoPartido.tiempoPensandoCPU;
+    const ratio = Math.max(0, Math.min(1, tiempoRestanteTurno / TIEMPO_LIMITE_JUGADOR));
     if (ratio <= 0) return;
 
     fichasPartido
-        .filter(f => f.equipo === "jugador" && f.respawnTimer <= 0 && f.respawnAnim <= 0 && !f.enCorrillo && !f.congelada)
+        .filter(f => f.equipo === getLadoLocal() && f.respawnTimer <= 0 && f.respawnAnim <= 0 && !f.enCorrillo && !f.congelada)
         .forEach(f => {
             ctx.save();
             ctx.strokeStyle = "#ff2222";
@@ -1470,6 +1492,106 @@ function drawTemporizadorFichas(ctx) {
             ctx.stroke();
             ctx.restore();
         });
+}
+
+// =========================================================
+// SINCRONIZACIÓN ONLINE (host -> invitado)
+// El host serializa todo el estado relevante del partido y lo
+// envía por red; el invitado simplemente sobrescribe sus objetos
+// locales con lo recibido.
+// =========================================================
+
+function serializarFicha(f) {
+    return {
+        x: f.x, y: f.y, vx: f.vx, vy: f.vy, radio: f.radio, masa: f.masa,
+        respawnTimer: f.respawnTimer, respawnAnim: f.respawnAnim,
+        rainbowPower: f.rainbowPower, enCorrillo: f.enCorrillo,
+        congelada: f.congelada, ultimoDisparoMaximo: f.ultimoDisparoMaximo
+    };
+}
+function aplicarFicha(f, d) {
+    Object.assign(f, d);
+}
+
+function serializarBalon(b) {
+    return {
+        x: b.x, y: b.y, vx: b.vx, vy: b.vy, radio: b.radio, masa: b.masa,
+        isBrick: b.isBrick, brickAncho: b.brickAncho, brickAlto: b.brickAlto,
+        sticky: b.sticky, frozen: b.frozen, lastTouchedByTeam: b.lastTouchedByTeam,
+        pegadoAIndex: b.pegadoA ? fichasPartido.indexOf(b.pegadoA) : -1
+    };
+}
+function aplicarBalon(b, d) {
+    b.x = d.x; b.y = d.y; b.vx = d.vx; b.vy = d.vy; b.radio = d.radio; b.masa = d.masa;
+    b.isBrick = d.isBrick; b.brickAncho = d.brickAncho; b.brickAlto = d.brickAlto;
+    b.sticky = d.sticky; b.frozen = d.frozen; b.lastTouchedByTeam = d.lastTouchedByTeam;
+    b.pegadoA = d.pegadoAIndex >= 0 ? fichasPartido[d.pegadoAIndex] : null;
+}
+
+function serializarPowerUps() {
+    if (typeof powerUpManager === 'undefined') return null;
+    return {
+        onField: powerUpManager.activePowerUpsOnField.map(it => ({
+            id: it.id, x: it.x, y: it.y, radius: it.radius,
+            spawnTime: it.spawnTime, lifeSpan: it.lifeSpan
+        })),
+        effects: powerUpManager.activeEffects.map(e => ({
+            id: e.id, team: e.team, startTime: e.startTime, duration: e.duration,
+            puddles: e.puddles || null
+        })),
+        goalMult: porteriaMultiplicadorActual
+    };
+}
+function aplicarPowerUps(d) {
+    if (!d || typeof powerUpManager === 'undefined') return;
+    powerUpManager.activePowerUpsOnField = d.onField.map(it => ({
+        id: it.id, type: POWERUP_TYPES[it.id], x: it.x, y: it.y,
+        radius: it.radius, spawnTime: it.spawnTime, lifeSpan: it.lifeSpan
+    }));
+    powerUpManager.activeEffects = d.effects.map(e => ({
+        id: e.id, type: POWERUP_TYPES[e.id], team: e.team,
+        startTime: e.startTime, duration: e.duration, puddles: e.puddles
+    }));
+    porteriaMultiplicadorActual = d.goalMult;
+    hieloActivo = tieneEfectoActivo('HIELO');
+}
+
+function serializarEstadoPartido() {
+    return {
+        fichas: fichasPartido.map(serializarFicha),
+        balon: serializarBalon(balonPartido),
+        balonesExtra: balonesExtra.map(serializarBalon),
+        marcador: {
+            golesJugador: EstadoPartido.golesJugador,
+            golesCPU: EstadoPartido.golesCPU,
+            tiempoRestante: EstadoPartido.tiempoRestante,
+            fase: EstadoPartido.fase,
+            ultimoQueMarco: EstadoPartido.ultimoQueMarco,
+            timerCelebracion: EstadoPartido.timerCelebracion
+        },
+        turno: {
+            estado: TurnoPartido.estado,
+            turnoSiguiente: TurnoPartido.turnoSiguiente,
+            tiempoPensandoCPU: TurnoPartido.tiempoPensandoCPU,
+            tiempoEsperaJugador: TurnoPartido.tiempoEsperaJugador
+        },
+        powerups: serializarPowerUps()
+    };
+}
+
+function aplicarEstadoPartido(snap) {
+    snap.fichas.forEach((d, i) => { if (fichasPartido[i]) aplicarFicha(fichasPartido[i], d); });
+    aplicarBalon(balonPartido, snap.balon);
+
+    if (balonesExtra.length !== snap.balonesExtra.length) {
+        balonesExtra = snap.balonesExtra.map(() => new Balon(0, 0));
+    }
+    balonesExtra.forEach((b, i) => aplicarBalon(b, snap.balonesExtra[i]));
+
+    Object.assign(EstadoPartido, snap.marcador);
+    Object.assign(TurnoPartido, snap.turno);
+
+    aplicarPowerUps(snap.powerups);
 }
 
 // =========================================================
@@ -1526,8 +1648,6 @@ function reposicionarTrasGol(quienMarco) {
     centrarBalon();
 
     if (tieneEfectoActivo('MULTI_BALL')) {
-        // Las copias reaparecen pero se quedan quietas hasta que uno
-        // de los dos equipos ejecute el próximo saque
         balonesExtra = [];
         spawnBalonesExtraQuietos(3);
         multiballActivoAnterior = true;
@@ -1548,6 +1668,46 @@ function reposicionarTrasGol(quienMarco) {
 const GameScreen = {
 
     init() {
+        // --- Detección del modo online (viene de teamSelect/onlineLobby) ---
+        modoOnline = !!(typeof TeamSelectScreen !== 'undefined' && TeamSelectScreen.modoOnline);
+        esHostOnline = modoOnline && typeof OnlineManager !== 'undefined' && OnlineManager.esHost;
+        this._temporizadorRed = 0;
+
+        if (modoOnline) {
+            // El host siempre es "jugador" (izq), el invitado siempre "cpu" (der)
+            const propio = SeleccionPartido.equipoJugador;
+            const rival = SeleccionPartido.equipoRival;
+            if (esHostOnline) {
+                SeleccionPartido.equipoJugador = propio;
+                SeleccionPartido.equipoCPU = rival;
+            } else {
+                SeleccionPartido.equipoJugador = rival;
+                SeleccionPartido.equipoCPU = propio;
+            }
+
+            OnlineManager.onMensaje = (msg) => {
+                if (msg.tipo === "disparoGuest" && esHostOnline) {
+                    const f = fichasPartido[msg.datos.fichaIndex];
+                    if (f) {
+                        f.vx = msg.datos.vx;
+                        f.vy = msg.datos.vy;
+                        f.ultimoDisparoMaximo = msg.datos.maxima;
+                    }
+                    TurnoPartido.turnoSiguiente = "jugador";
+                    TurnoPartido.estado = "animando";
+                    balonesExtraCongelados = false;
+                } else if (msg.tipo === "estadoPartido" && !esHostOnline) {
+                    aplicarEstadoPartido(msg.datos);
+                }
+            };
+
+            OnlineManager.onDesconectado = () => {
+                alert("El rival se ha desconectado.");
+                OnlineManager.desconectar();
+                cambiarPantalla("menu");
+            };
+        }
+
         EstadoPartido.reset();
         ControlJugador.reset();
         ControlCPU.reset();
@@ -1613,19 +1773,50 @@ const GameScreen = {
         const deltaTime = Math.min((ahora - EstadoPartido.ultimoTimestamp) / 1000, 0.05);
         EstadoPartido.ultimoTimestamp = ahora;
 
-        if (EstadoPartido.fase !== "finalizado") {
-            actualizarEstadoPartido(deltaTime);
-
+        if (modoOnline && !esHostOnline) {
+            // --- INVITADO: solo movimiento "de cara a la galería" ---
+            // Sin colisiones entre entidades (eso lo decide el host);
+            // la posición real llega por red y corrige cualquier desvío.
             if (EstadoPartido.fase === "jugando" && balonPartido) {
-                actualizarFisicas(fichasPartido, balonPartido, deltaTime);
-                TurnoPartido.actualizar(deltaTime, fichasPartido, balonPartido);
+                fichasPartido.forEach(f => actualizarMovimiento(f));
+                actualizarMovimiento(balonPartido);
+                balonesExtra.forEach(b => actualizarMovimiento(b));
 
-                const golDetectado = comprobarGol(balonPartido);
-                if (golDetectado) {
-                    procesarGol(golDetectado);
-                    balonPartido.vx = 0;
-                    balonPartido.vy = 0;
-                    ControlJugador.reset();
+                fichasPartido.forEach(f => {
+                    resolverColisionBordes(f);
+                    resolverColisionPostes(f);
+                });
+                resolverColisionBordes(balonPartido);
+                resolverColisionPostes(balonPartido);
+                balonesExtra.forEach(b => {
+                    resolverColisionBordes(b);
+                    resolverColisionPostes(b);
+                });
+            }
+        } else {
+            // --- HOST u OFFLINE: física real ---
+            if (EstadoPartido.fase !== "finalizado") {
+                actualizarEstadoPartido(deltaTime);
+
+                if (EstadoPartido.fase === "jugando" && balonPartido) {
+                    actualizarFisicas(fichasPartido, balonPartido, deltaTime);
+                    TurnoPartido.actualizar(deltaTime, fichasPartido, balonPartido);
+
+                    const golDetectado = comprobarGol(balonPartido);
+                    if (golDetectado) {
+                        procesarGol(golDetectado);
+                        balonPartido.vx = 0;
+                        balonPartido.vy = 0;
+                        ControlJugador.reset();
+                    }
+                }
+            }
+
+            if (modoOnline && esHostOnline) {
+                this._temporizadorRed += deltaTime;
+                if (this._temporizadorRed >= 0.1) {
+                    this._temporizadorRed = 0;
+                    OnlineManager.enviar("estadoPartido", serializarEstadoPartido());
                 }
             }
         }
@@ -1679,13 +1870,19 @@ const GameScreen = {
         const btnW = 150;
         const btnH = 44;
 
-        const repetirBtn = drawRetroButton(ctx, "REPETIR", centroX - btnW - 10, centroY + 50, btnW, btnH, this._hoverFin === "repetir");
-        repetirBtn.id = "repetir";
+        if (modoOnline) {
+            const salirBtn = drawRetroButton(ctx, "SALIR", centroX - btnW / 2, centroY + 50, btnW, btnH, this._hoverFin === "salir");
+            salirBtn.id = "salir";
+            this._botonesFin = [salirBtn];
+        } else {
+            const repetirBtn = drawRetroButton(ctx, "REPETIR", centroX - btnW - 10, centroY + 50, btnW, btnH, this._hoverFin === "repetir");
+            repetirBtn.id = "repetir";
 
-        const salirBtn = drawRetroButton(ctx, "SALIR", centroX + 10, centroY + 50, btnW, btnH, this._hoverFin === "salir");
-        salirBtn.id = "salir";
+            const salirBtn = drawRetroButton(ctx, "SALIR", centroX + 10, centroY + 50, btnW, btnH, this._hoverFin === "salir");
+            salirBtn.id = "salir";
 
-        this._botonesFin = [repetirBtn, salirBtn];
+            this._botonesFin = [repetirBtn, salirBtn];
+        }
 
         ctx.restore();
 
@@ -1713,6 +1910,9 @@ const GameScreen = {
                         if (b.id === "repetir") {
                             cambiarPantalla("game");
                         } else if (b.id === "salir") {
+                            if (modoOnline) {
+                                OnlineManager.desconectar();
+                            }
                             cambiarPantalla("menu");
                         }
                     }

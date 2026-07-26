@@ -1,20 +1,23 @@
 // =========================================================
 // TEAMSELECT.JS
-// Pantalla dividida (estilo FIFA) para elegir equipo del
-// jugador (izquierda) y equipo de la CPU (derecha)
+// Pantalla dividida (estilo FIFA) para elegir equipo.
+// Modo offline: tú (izq) vs CPU (der, elegible).
+// Modo online (detectado automáticamente si hay conexión activa):
+// tú (izq) vs rival humano (der, solo lectura, sincronizado por red).
 // =========================================================
 
 // Estado global de la selección, lo leerá game.js al empezar el partido
 const SeleccionPartido = {
     equipoJugador: null,
-    equipoCPU: null
+    equipoCPU: null,
+    equipoRival: null // solo se usa en modo online
 };
 
 const TeamSelectScreen = {
 
     botones: [],
     hover: null,
-    equipos: [],          // lista plana de todos los equipos jugables
+    equipos: [],
     estadoIzq: "categoria",
     estadoDer: "categoria",
     ligaActualIzq: null,
@@ -23,6 +26,11 @@ const TeamSelectScreen = {
     continenteDer: null,
     scrollIzq: 0,
     scrollDer: 0,
+
+    // --- Estado del modo online ---
+    modoOnline: false,
+    listoLocal: false,
+    listoRival: false,
 
     init() {
         this.botones = [];
@@ -37,6 +45,35 @@ const TeamSelectScreen = {
         this.scrollIzq = 0;
         this.scrollDer = 0;
 
+        // Detección automática: si hay una conexión PeerJS abierta,
+        // venimos del lobby online
+        this.modoOnline = !!(typeof OnlineManager !== "undefined" && OnlineManager.conn && OnlineManager.conn.open);
+        this.listoLocal = false;
+        this.listoRival = false;
+
+        if (this.modoOnline) {
+            SeleccionPartido.equipoRival = null;
+
+            OnlineManager.onMensaje = (msg) => {
+                if (msg.tipo === "seleccion") {
+                    SeleccionPartido.equipoRival = this.findEquipoById(msg.datos.equipoId);
+                } else if (msg.tipo === "listo") {
+                    this.listoRival = msg.datos.listo;
+                    if (this.listoRival && OnlineManager.esHost) {
+                        this.intentarEmpezar();
+                    }
+                } else if (msg.tipo === "empezarPartido") {
+                    this.empezarPartidoOnline();
+                }
+            };
+
+            OnlineManager.onDesconectado = () => {
+                alert("El rival se ha desconectado.");
+                OnlineManager.desconectar();
+                cambiarPantalla("menu");
+            };
+        }
+
         canvas.addEventListener("mousemove", this.onMouseMove);
         canvas.addEventListener("click", this.onClick);
         canvas.addEventListener("wheel", this.onWheel, { passive: false });
@@ -46,6 +83,8 @@ const TeamSelectScreen = {
         canvas.removeEventListener("mousemove", this.onMouseMove);
         canvas.removeEventListener("click", this.onClick);
         canvas.removeEventListener("wheel", this.onWheel);
+        // OJO: no desconectamos aquí. Si vamos a "game", la conexión debe
+        // seguir viva. Solo se corta explícitamente al pulsar "VOLVER".
     },
 
     onMouseMove(e) {
@@ -85,7 +124,7 @@ const TeamSelectScreen = {
             const maxScroll = TeamSelectScreen.getMaxScroll("izq");
             TeamSelectScreen.scrollIzq += e.deltaY;
             TeamSelectScreen.scrollIzq = Math.max(0, Math.min(TeamSelectScreen.scrollIzq, maxScroll));
-        } else {
+        } else if (!TeamSelectScreen.modoOnline) {
             const maxScroll = TeamSelectScreen.getMaxScroll("der");
             TeamSelectScreen.scrollDer += e.deltaY;
             TeamSelectScreen.scrollDer = Math.max(0, Math.min(TeamSelectScreen.scrollDer, maxScroll));
@@ -132,6 +171,9 @@ const TeamSelectScreen = {
 
     handleAction(id) {
         if (id === "volver") {
+            if (this.modoOnline) {
+                OnlineManager.desconectar();
+            }
             this.estadoIzq = "categoria";
             this.estadoDer = "categoria";
             this.ligaActualIzq = null;
@@ -143,11 +185,17 @@ const TeamSelectScreen = {
             if (SeleccionPartido.equipoJugador && SeleccionPartido.equipoCPU) {
                 cambiarPantalla("game");
             }
+        } else if (id === "toggle_listo") {
+            if (!this.modoOnline || !SeleccionPartido.equipoJugador) return;
+            this.listoLocal = !this.listoLocal;
+            OnlineManager.enviar("listo", { listo: this.listoLocal });
+            if (this.listoLocal) this.intentarEmpezar();
         } else if (id.startsWith("cat_izq_")) {
             const cat = id.replace("cat_izq_", "");
             this.estadoIzq = "continentes_" + cat;
             this.scrollIzq = 0;
         } else if (id.startsWith("cat_der_")) {
+            if (this.modoOnline) return;
             const cat = id.replace("cat_der_", "");
             this.estadoDer = "continentes_" + cat;
             this.scrollDer = 0;
@@ -157,6 +205,7 @@ const TeamSelectScreen = {
             this.estadoIzq = this.estadoIzq === "continentes_ligas" ? "ligas" : "selecciones";
             this.scrollIzq = 0;
         } else if (id.startsWith("cont_der_")) {
+            if (this.modoOnline) return;
             const continente = id.replace("cont_der_", "");
             this.continenteDer = continente;
             this.estadoDer = this.estadoDer === "continentes_ligas" ? "ligas" : "selecciones";
@@ -166,20 +215,41 @@ const TeamSelectScreen = {
             this.ligaActualIzq = id.replace("liga_izq_", "");
             this.scrollIzq = 0;
         } else if (id.startsWith("liga_der_")) {
+            if (this.modoOnline) return;
             this.estadoDer = "liga_detalle";
             this.ligaActualDer = id.replace("liga_der_", "");
             this.scrollDer = 0;
         } else if (id === "back_izq") {
             this.retrocederPanel("izq");
         } else if (id === "back_der") {
+            if (this.modoOnline) return;
             this.retrocederPanel("der");
         } else if (id.startsWith("team_izq_")) {
             const equipoId = id.replace("team_izq_", "");
             SeleccionPartido.equipoJugador = this.findEquipoById(equipoId);
+            if (this.modoOnline) {
+                this.listoLocal = false;
+                OnlineManager.enviar("seleccion", { equipoId });
+                OnlineManager.enviar("listo", { listo: false });
+            }
         } else if (id.startsWith("team_der_")) {
+            if (this.modoOnline) return;
             const equipoId = id.replace("team_der_", "");
             SeleccionPartido.equipoCPU = this.findEquipoById(equipoId);
         }
+    },
+
+    // Solo el host decide cuándo arranca de verdad la partida
+    intentarEmpezar() {
+        if (!OnlineManager.esHost) return;
+        if (this.listoLocal && this.listoRival) {
+            OnlineManager.enviar("empezarPartido", {});
+            this.empezarPartidoOnline();
+        }
+    },
+
+    empezarPartidoOnline() {
+        cambiarPantalla("game");
     },
 
     retrocederPanel(lado) {
@@ -241,7 +311,7 @@ const TeamSelectScreen = {
         this.botones.push(volverBtn);
 
         drawRetroText(ctx, "TU EQUIPO", mitad / 2, 60, 16, "#ffff00");
-        drawRetroText(ctx, "EQUIPO CPU", mitad + mitad / 2, 60, 16, "#ffff00");
+        drawRetroText(ctx, this.modoOnline ? "EQUIPO RIVAL" : "EQUIPO CPU", mitad + mitad / 2, 60, 16, "#ffff00");
 
         if (data.ligas.length === 0 && data.selecciones.length === 0) {
             drawRetroText(ctx, "NO HAY EQUIPOS", mitad / 2, canvas.height / 2, 12, "#00ffff");
@@ -252,9 +322,18 @@ const TeamSelectScreen = {
         }
 
         this.drawSidePanel(ctx, 0, mitad, "izq", SeleccionPartido.equipoJugador, this.estadoIzq, this.ligaActualIzq, this.scrollIzq, data);
-        this.drawSidePanel(ctx, mitad, mitad, "der", SeleccionPartido.equipoCPU, this.estadoDer, this.ligaActualDer, this.scrollDer, data);
 
-        this.drawResumenInferior(ctx);
+        if (this.modoOnline) {
+            this.drawRivalPanel(ctx, mitad, mitad);
+        } else {
+            this.drawSidePanel(ctx, mitad, mitad, "der", SeleccionPartido.equipoCPU, this.estadoDer, this.ligaActualDer, this.scrollDer, data);
+        }
+
+        if (this.modoOnline) {
+            this.drawResumenInferiorOnline(ctx);
+        } else {
+            this.drawResumenInferior(ctx);
+        }
     },
 
     drawSidePanel(ctx, offsetX, ancho, lado, equipoSeleccionado, estado, ligaActual, scroll, data) {
@@ -290,6 +369,27 @@ const TeamSelectScreen = {
         if (estado === "liga_detalle") {
             this.drawLeagueTeams(ctx, offsetX, ancho, scroll, lado, data.ligas, ligaActual, equipoSeleccionado);
             return;
+        }
+    },
+
+    // Panel de solo lectura para el rival humano en modo online: muestra
+    // el equipo que va marcando en tiempo real y si ya ha pulsado LISTO
+    drawRivalPanel(ctx, offsetX, ancho) {
+        const centerX = offsetX + ancho / 2;
+        const centerY = canvas.height / 2 - 20;
+
+        if (SeleccionPartido.equipoRival) {
+            const eq = SeleccionPartido.equipoRival;
+            const img = getCachedImage(eq.escudo);
+            drawEscudo(ctx, img && img.complete ? img : null, centerX - 60, centerY - 90, 120);
+            drawWrappedCardName(ctx, eq.nombre, centerX, centerY + 30, ancho - 80, 50, 16, "#ffffff");
+        } else {
+            drawRetroText(ctx, "Esperando selección", centerX, centerY, 12, "#00ffff");
+            drawRetroText(ctx, "del rival...", centerX, centerY + 20, 12, "#00ffff");
+        }
+
+        if (this.listoRival) {
+            drawRetroText(ctx, "✓ RIVAL LISTO", centerX, centerY + 110, 12, "#00ff00");
         }
     },
 
@@ -388,7 +488,7 @@ const TeamSelectScreen = {
             drawRetroPanel(ctx, x, y, cardW, cardH, "#2b2b2b", "#f5f5f5");
             const img = getCachedImage(liga.logo);
             drawEscudo(ctx, img && img.complete ? img : null, x + cardW / 2 - 40, y + 12, 80);
-            drawRetroTextFit(ctx, liga.nombre, x + cardW / 2, y + 112, cardW - 12, 10, "#f5f5f5");
+            drawWrappedCardName(ctx, liga.nombre, x + cardW / 2, y + 96, cardW - 16, cardH - 100, 10, "#f5f5f5");
 
             const topY = Math.max(y, areaY);
             const bottomY = Math.min(y + cardH, areaY + areaAltura);
@@ -444,7 +544,7 @@ const TeamSelectScreen = {
             const img = getCachedImage(sel.escudo);
             drawEscudo(ctx, img && img.complete ? img : null, x + cardW / 2 - 36, y + 12, 72);
             const textColor = getContrastTextColor(sel.colorFondo || "#000080");
-            drawRetroTextFit(ctx, sel.nombre, x + cardW / 2, y + 110, cardW - 12, 10, textColor);
+            drawWrappedCardName(ctx, sel.nombre, x + cardW / 2, y + 88, cardW - 16, cardH - 92, 10, textColor);
 
             const topY = Math.max(y, areaY);
             const bottomY = Math.min(y + cardH, areaY + areaAltura);
@@ -512,7 +612,7 @@ const TeamSelectScreen = {
             const img = getCachedImage(equipo.escudo);
             drawEscudo(ctx, img && img.complete ? img : null, x + cardW / 2 - 36, y + 12, 72);
             const textColor = getContrastTextColor(equipo.colorFondo || "#000080");
-            drawRetroTextFit(ctx, equipo.nombre, x + cardW / 2, y + 110, cardW - 12, 10, textColor);
+            drawWrappedCardName(ctx, equipo.nombre, x + cardW / 2, y + 88, cardW - 16, cardH - 92, 10, textColor);
 
             const topY = Math.max(y, areaY);
             const bottomY = Math.min(y + cardH, areaY + areaAltura);
@@ -585,6 +685,51 @@ const TeamSelectScreen = {
             jugarBtn.id = "jugar_partido";
             this.botones.push(jugarBtn);
         }
+    },
+
+    // Versión online del panel inferior: muestra tu equipo + botón LISTO,
+    // y el estado ("eligiendo"/"listo") de ambos jugadores
+    drawResumenInferiorOnline(ctx) {
+        const y = canvas.height - 100;
+
+        ctx.fillStyle = "#000";
+        ctx.fillRect(0, y, canvas.width, 100);
+        ctx.strokeStyle = "#ffff00";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+        ctx.stroke();
+
+        if (SeleccionPartido.equipoJugador) {
+            const eq = SeleccionPartido.equipoJugador;
+            const img = getCachedImage(eq.escudo);
+            drawEscudo(ctx, img && img.complete ? img : null, 60, y + 15, 60);
+            drawRetroText(ctx, eq.nombre, 60 + 70, y + 35, 11, "#00ffff", "left");
+        } else {
+            drawRetroText(ctx, "Elige tu equipo", 60 + 70, y + 45, 10, "#00ffff", "left");
+        }
+
+        const listoDisponible = !!SeleccionPartido.equipoJugador;
+        const btnW = 180;
+        const btnH = 44;
+        const btnX = canvas.width / 2 - btnW / 2;
+        const btnY = y + 12;
+        const texto = this.listoLocal ? "✓ LISTO" : "LISTO";
+
+        ctx.save();
+        if (!listoDisponible) ctx.globalAlpha = 0.4;
+        const listoBtn = drawRetroButton(ctx, texto, btnX, btnY, btnW, btnH, this.hover === "toggle_listo" && listoDisponible);
+        ctx.restore();
+
+        if (listoDisponible) {
+            listoBtn.id = "toggle_listo";
+            this.botones.push(listoBtn);
+        }
+
+        const estadoTexto = (this.listoLocal ? "Tú: listo" : "Tú: eligiendo") +
+            "   |   " + (this.listoRival ? "Rival: listo" : "Rival: eligiendo");
+        drawRetroText(ctx, estadoTexto, canvas.width / 2, y + 66, 9, "#999999");
     }
 };
 
