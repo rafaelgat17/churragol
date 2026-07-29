@@ -1,34 +1,48 @@
 // =========================================================
 // STORAGE.JS
-// Gestiona el guardado y carga de Ligas, Selecciones y Equipos
-// usando IndexedDB (a través de localForage) para espacio ilimitado.
+// Gestiona el guardado y carga de Ligas, Selecciones, Equipos y
+// del Perfil del jugador, usando IndexedDB (localForage).
 // =========================================================
 
 const STORAGE_KEY = "churragol_data";
+const PERFIL_KEY = "churragol_perfil";
 
-// Variable global en memoria para que las lecturas sigan siendo sincrónicas
+// Variables globales en memoria para que las lecturas sigan siendo sincrónicas
 let cachedData = null;
+let perfilCache = null;
 
 // Estructura de datos por defecto si no hay nada guardado aún
 function getDefaultData() {
     return {
-        ligas: [],        // [{ id, nombre, logo(base64), equipos: [...] }]
-        selecciones: [],   // [{ id, nombre, escudo(base64), colorFondo, colorBorde }]
-                          // (las selecciones son "equipos sueltos", sin liga)
-        paises: []         // [{ id, nombre, logo(base64), colorFondo, colorBorde }]
+        ligas: [],
+        selecciones: [],
+        paises: []
+    };
+}
+
+// Estructura por defecto del perfil (jugador aún no creado: nombre = null)
+function getDefaultPerfil() {
+    return {
+        nombre: null,
+        bandera: null,
+        nivel: 1,
+        xpActual: 0,
+        victorias: 0,
+        empates: 0,
+        derrotas: 0,
+        moneda: 0
     };
 }
 
 /**
  * Inicializa el almacenamiento desde IndexedDB.
  * Si no encuentra datos guardados, lee 'datos_juego.json' como base.
+ * También inicializa el perfil del jugador (nuevo).
  */
 async function initStorage() {
     try {
-        // 1. Intentar cargar desde IndexedDB (localForage)
         let data = await localforage.getItem(STORAGE_KEY);
 
-        // 2. Si no hay nada en IndexedDB, buscar en localStorage por retrocompatibilidad
         if (!data) {
             const rawLocal = localStorage.getItem(STORAGE_KEY);
             if (rawLocal) {
@@ -43,7 +57,6 @@ async function initStorage() {
             }
         }
 
-        // 3. Si sigue sin haber datos, cargamos el archivo datos_juego.json de la raíz
         if (!data) {
             console.log("⚠️ No hay datos en IndexedDB/localStorage. Cargando datos_juego.json...");
             try {
@@ -60,12 +73,16 @@ async function initStorage() {
             }
         }
 
-        // 4. Asignar a la memoria global
         cachedData = data || getDefaultData();
+
+        // Inicializamos también el perfil del jugador
+        await initPerfil();
+
         return cachedData;
     } catch (err) {
         console.error("Error al inicializar IndexedDB:", err);
         cachedData = getDefaultData();
+        perfilCache = getDefaultPerfil();
         return cachedData;
     }
 }
@@ -92,6 +109,44 @@ function generateId() {
     return Date.now().toString(36) + Math.random().toString(36).substring(2, 7);
 }
 
+// ---------------------------------------------------------
+// PERFIL DEL JUGADOR
+// ---------------------------------------------------------
+
+async function initPerfil() {
+    try {
+        const perfil = await localforage.getItem(PERFIL_KEY);
+        perfilCache = perfil || getDefaultPerfil();
+        return perfilCache;
+    } catch (err) {
+        console.error("Error al inicializar el perfil:", err);
+        perfilCache = getDefaultPerfil();
+        return perfilCache;
+    }
+}
+
+// Carga el perfil actual guardado en memoria (síncrono)
+function loadPerfil() {
+    if (!perfilCache) {
+        console.warn("Perfil aún no inicializado. Usando datos por defecto.");
+        return getDefaultPerfil();
+    }
+    return perfilCache;
+}
+
+// Guarda el perfil en caché local e inicia el guardado en IndexedDB
+function savePerfil(perfil) {
+    perfilCache = perfil;
+    localforage.setItem(PERFIL_KEY, perfil).catch(err => {
+        console.error("Error al guardar el perfil:", err);
+    });
+}
+
+// ¿Ya se ha creado el perfil (nombre elegido) al menos una vez?
+function existePerfilCreado() {
+    const p = loadPerfil();
+    return !!(p && p.nombre);
+}
 
 // ---------------------------------------------------------
 // FUNCIONES PARA PAÍSES
@@ -105,7 +160,7 @@ function addPais(nombre, logoBase64, colorFondo, colorBorde, continenteId) {
         logo: logoBase64,
         colorFondo: colorFondo || "#1b2438",
         colorBorde: colorBorde || "#ffd600",
-        continenteId: continenteId || "europa" // Guardamos a qué continente pertenece el país
+        continenteId: continenteId || "europa"
     };
     data.paises.push(nuevoPais);
     saveData(data);
@@ -144,7 +199,7 @@ function addEquipoALiga(ligaId, equipo) {
     const nuevoEquipo = {
         id: generateId(),
         nombre: equipo.nombre,
-        escudo: equipo.escudo,       // base64
+        escudo: equipo.escudo,
         colorFondo: equipo.colorFondo,
         colorBorde: equipo.colorBorde
     };

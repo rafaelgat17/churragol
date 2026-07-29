@@ -1724,6 +1724,7 @@ const GameScreen = {
         EstadoPartido.reset();
         ControlJugador.reset();
         ControlCPU.reset();
+        this._progresoAplicado = false;
 
         if (typeof powerUpManager !== 'undefined') {
             powerUpManager.reset();
@@ -1815,12 +1816,28 @@ const GameScreen = {
                     actualizarFisicas(fichasPartido, balonPartido, deltaTime);
                     TurnoPartido.actualizar(deltaTime, fichasPartido, balonPartido);
 
-                    const golDetectado = comprobarGol(balonPartido);
+const golDetectado = comprobarGol(balonPartido);
                     if (golDetectado) {
                         procesarGol(golDetectado);
                         balonPartido.vx = 0;
                         balonPartido.vy = 0;
                         ControlJugador.reset();
+                    }
+                }
+
+                // Solo damos XP/moneda en partidas contra la CPU (offline),
+                // nunca en 1 vs 1 online, y solo una vez por partido
+                if (EstadoPartido.fase === "finalizado" && !modoOnline && !this._progresoAplicado) {
+                    this._progresoAplicado = true;
+                    let resultado;
+                    if (EstadoPartido.golesJugador > EstadoPartido.golesCPU) resultado = "victoria";
+                    else if (EstadoPartido.golesJugador < EstadoPartido.golesCPU) resultado = "derrota";
+                    else resultado = "empate";
+
+                    const perfil = loadPerfil();
+                    if (perfil.nombre) {
+                        aplicarResultadoAPerfil(perfil, resultado);
+                        savePerfil(perfil);
                     }
                 }
             }

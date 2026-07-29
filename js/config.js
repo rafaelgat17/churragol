@@ -7,4 +7,4 @@
 // Para la build que subes a GitHub Pages (jugadores): ponlo en false.
 // =========================================================
 
-const MODO_ADMIN = true;
+const MODO_ADMIN = false;

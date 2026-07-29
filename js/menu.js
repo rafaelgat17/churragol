@@ -52,13 +52,15 @@ const MenuScreen = {
         });
     },
 
-    handleAction(id) {
+handleAction(id) {
         if (id === "jugar") {
             cambiarPantalla("teamSelect");
         } else if (id === "editor") {
             cambiarPantalla("editor");
         } else if (id === "online") {
             cambiarPantalla("onlineLobby");
+        } else if (id === "usuario") {
+            cambiarPantalla("profile");
         } else if (id === "salir") {
             // En navegador no se puede "cerrar" la pestaña por seguridad,
             // así que mostramos un mensaje simpático en su lugar
@@ -97,7 +99,7 @@ const MenuScreen = {
             { id: "salir", texto: "SALIR" }
         ];
 
-        opciones.forEach(op => {
+opciones.forEach(op => {
             const hitbox = drawRetroButton(
                 ctx, op.texto, btnX, btnY, btnW, btnH,
                 this.hover === op.id
@@ -106,6 +108,25 @@ const MenuScreen = {
             this.botones.push(hitbox);
             btnY += espacio;
         });
+
+        // Botón de usuario, arriba a la derecha (solo en la build de jugador)
+        if (!MODO_ADMIN) {
+            this.drawBotonUsuario(ctx);
+        }
+    },
+
+    drawBotonUsuario(ctx) {
+        const perfil = loadPerfil();
+        const texto = perfil && perfil.nombre ? perfil.nombre.toUpperCase() : "USUARIO";
+        const anchoTexto = Math.max(120, texto.length * 12 + 40);
+        const btnW = Math.min(220, anchoTexto);
+        const btnH = 40;
+        const x = canvas.width - btnW - 20;
+        const y = 20;
+
+        const btn = drawRetroButton(ctx, texto, x, y, btnW, btnH, this.hover === "usuario", 10);
+        btn.id = "usuario";
+        this.botones.push(btn);
     },
 
     // Fondo decorativo tipo césped a rayas verdes (simple, sin imágenes externas)
